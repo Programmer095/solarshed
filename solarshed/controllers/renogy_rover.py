@@ -26,6 +26,26 @@ CHARGING_STATE = {
     6: 'current limiting'
 }
 
+cmds = {
+    "charging_voltage_limit": [0xe006, 1],
+    "charging_float_voltage": [0xe007, 1],
+    "charging_boost_voltage": [0xe008, 1],
+
+    "solar_power": [0x0109, 1],
+    "battery_min_voltage_of_the_day": [0x10b, 0.1],
+    "battery_max_voltage_of_the_day": [0x10c, 0.1],
+
+    "power_generation_today": [0x0113, 0.0001],
+
+    "battery_voltage": [0x0101, .1],
+
+    "load_voltage": [0x0104, .1],
+    "load_current": [0x0105, .01],
+    "load_power": [0x0106, 1],
+
+    "charging_current_to_battery": [0x102, 0.01],
+}
+
 class RenogyRover(minimalmodbus.Instrument):
     """
     Communicates using the Modbus RTU protocol (via provided USB<->RS232 cable)
@@ -79,12 +99,6 @@ class RenogyRover(minimalmodbus.Instrument):
         """
         return self.read_register(256) & 0x00ff
 
-    def battery_voltage(self):
-        """
-        Read the battery voltage
-        """
-        return self.read_register(257, numberOfDecimals=1)
-
     def battery_temperature(self):
         """
         Read the battery surface temperature
@@ -108,65 +122,37 @@ class RenogyRover(minimalmodbus.Instrument):
         controller_temp = -(temp_value - 128) if sign == 1 else temp_value
         return controller_temp
 
-    def load_voltage(self):
-        """
-        Read load (raspberrypi) voltage
-        """
-        return self.read_register(260, numberOfDecimals=1)
-
-    def load_current(self):
-        """
-        Read load (raspberrypi) current
-        """
-        return self.read_register(261, numberOfDecimals=2)
-
-    def load_power(self):
-        """
-        Read load (raspberrypi) power
-        """
-        return self.read_register(262)
-
     def solar_voltage(self):
         """
         Read solar voltage
         """
-        return self.read_register(263, numberOfDecimals=1)
+        return self.read_register(0x107, numberOfDecimals=1)
 
     def solar_current(self):
+        """Solar panel current (to controller) Solar panel current * 0.01
         """
-        Read solar current
-        """
-        return self.read_register(264, numberOfDecimals=2)
-
-    def solar_power(self):
-        """
-        Read solar power
-        """
-        return self.read_register(265)
+        return self.read_register(0x108, numberOfDecimals=2)
 
     def charging_amp_hours_today(self):
         """
         Read charging amp hours for the current day
         """
-        return self.read_register(273)
+        return self.read_register(0x111)
 
     def discharging_amp_hours_today(self):
         """
         Read discharging amp hours for the current day
         """
-        return self.read_register(274)
-
-    def power_generation_today(self):
-        return self.read_register(275)
+        return self.read_register(0x112)
 
     def charging_status(self):
-        return self.read_register(288) & 0x00ff
+        return self.read_register(0x120) & 0x00ff
 
     def charging_status_label(self):
         return CHARGING_STATE.get(self.charging_status())
 
     def battery_capacity(self):
-        return self.read_register(57346)
+        return self.read_register(0xe002)
 
     def voltage_setting(self):
         register = self.read_register(57347)
@@ -179,6 +165,14 @@ class RenogyRover(minimalmodbus.Instrument):
         return BATTERY_TYPE.get(register)
 
     #TODO: resume at 3.10 of spec
+
+    def __getattr__(self, name):
+        if name in cmds:
+            def f():
+                addr, multiplier = cmds[name]
+                return self.read_register(addr) * multiplier
+            return f
+        raise AttributeError(name + " not found")
 
 if __name__ == "__main__":
     rover = RenogyRover('/dev/ttyUSB0', 1)
